@@ -1,0 +1,13 @@
+#include <stdio.h>
+  
+#define sys_enqueue 335
+#define sys_dequeue 336
+
+long kboard_copy(int clip)
+{
+        syscall(sys_enqueue, clip);
+}
+long kboard_paste(int *clip)
+{
+        syscall(sys_dequeue, clip);
+}

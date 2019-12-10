@@ -1,0 +1,386 @@
+#include <linux/slab.h>
+#include <linux/module.h>       /* for module programming */
+#include <linux/mutex.h>
+#include <linux/list.h>
+#include <linux/seq_file.h>
+#include <linux/proc_fs.h>
+#include <linux/printk.h>
+#include <linux/uaccess.h>
+
+#define MAX_CLIP 5
+
+int write_iterator = 0;
+int read_iterator = 0;
+int ring[MAX_CLIP] = {-7777};
+long ring_lp = 0;
+long ring_cp = 0;
+int count = 0;
+struct list_head list;
+int re;
+
+struct semaphore wrt;
+struct semaphore read;
+struct semaphore wmutex;
+struct semaphore rmutex;
+int rwc = 0;
+int wwc = 0;
+struct semaphore mutex;
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Youngil, Moon <jake9999@dreamwiz.com>");
+MODULE_DESCRIPTION("A sample driver");
+MODULE_LICENSE("Dual BSD/GPL");
+/*--------------------------------------------------------*/
+/* 1) Generate sample data                                */
+/*--------------------------------------------------------*/
+
+DEFINE_MUTEX(foo_lock);
+
+/*--------------------------------------------------------*/
+/* 2) proc operations part                                */
+/*--------------------------------------------------------*/
+
+static int foo_simple_show_read(struct seq_file *s, void *unused)
+{
+        seq_printf(s, "read_%d\n", read_iterator);
+        return 0;
+}
+
+static int foo_simple_show_write(struct seq_file *s, void *unused)
+{
+        seq_printf(s, "write_%d\n", write_iterator);
+        return 0;
+}
+
+
+
+static int foo_proc_open_read(struct inode *inode, struct file *file)
+{
+        return single_open(file, foo_simple_show_read, NULL);
+}
+
+static int foo_proc_open_write(struct inode *inode, struct file *file)
+{
+        return single_open(file, foo_simple_show_write, NULL);
+}
+
+int readcount = 0;
+int writecount = 0;
+
+static ssize_t foo_proc_modread(struct file *file, char __user *user, size_t size_t1, loff_t *loff_t1)
+{
+
+        /*down(&read);
+        up(&read);
+        down(&rmutex);
+        readcount++;
+        if(readcount == 1)
+                down(&wrt);
+        up(&rmutex);*/ //2贾风记
+
+        down(&mutex);
+        if(wwc>0 || writecount>0) {
+                rwc++;
+                up(&mutex);
+                down(&read);
+                down(&mutex);
+                rwc--;
+        }
+        readcount++;
+        up(&mutex); //3贾风记
+
+
+        /*down(&read);
+        readcount++;
+        if(readcount == 1)
+        down(&wrt);
+        up(&read);*/ //1贾风记
+
+        re = ring[count % 5];
+        read_iterator++;
+
+        /*down(&read);
+        readcount--;
+        if(readcount == 0)
+        up(&wrt);
+        up(&read);*/ //1贾风记
+
+        down(&mutex);
+        readcount--;
+
+        if(readcount==0 && wwc>0)
+                up(&wrt);
+        up(&mutex); //3贾风记
+
+        /*down(&rmutex);
+        readcount--;
+        if(readcount == 0)
+                up(&wrt);
+
+        up(&rmutex);*/ //2贾风记
+
+        return 0;
+}
+
+int k = 0;
+static ssize_t foo_proc_modwrite(struct file *file, const char __user *user, size_t size_t1, loff_t *loff_t1)
+{
+        if(count > 4 )
+                return size_t1;
+
+        /*down(&wmutex);
+        writecount++;
+        if (writecount == 1)
+                 down(&read);
+        up(&wmutex);
+        down(&wrt);*/ //2贾风记
+
+
+        down(&mutex);
+        if(readcount>0 || writecount>0 || rwc>0 || wwc>0) {
+                wwc++;
+                up(&mutex);
+                down(&wrt);
+                down(&mutex);
+                wwc--;
+        }
+        writecount++;
+        up(&mutex); //3贾风记 
+
+
+        //down(&wrt); // 1贾风记
+        ring[ring_lp++] = 1;
+        if(ring_lp == MAX_CLIP) ring_lp = 0;
+        count++;
+        write_iterator++;
+        //up(&wrt); //1贾风记
+
+
+        down(&mutex);
+        writecount--;
+
+        if (rwc>0) {
+                for(k=0;k<rwc;k++)
+                        up(&read);
+        }
+        else if(wwc>0)
+                up(&wrt);
+        up(&mutex); //3贾风记
+
+        /*up(&wrt);
+        down(&wmutex);
+         writecount--;
+        if (writecount == 0)
+               up(&read);
+         up(&wmutex);*/ //2贾风记
+
+
+
+        return size_t1;
+}
+
+static ssize_t foo_proc_writer_read(struct file *file, char __user *user, size_t size ,loff_t *g){
+
+
+
+        if(count < 1){
+                return 0;
+        }
+
+        /*down(&wmutex);
+        writecount++;
+        if (writecount == 1)
+                down(&read);
+        up(&wmutex);
+        down(&wrt);*/ // 2贾风记
+
+
+        down(&mutex);
+        if(readcount>0 || writecount>0 || rwc>0 || wwc>0) {
+                wwc++;
+                up(&mutex);
+                down(&wrt);
+                down(&mutex);
+                wwc--;
+        }
+        writecount++;
+        up(&mutex); // 3贾风记  
+
+        //down(&wrt); //1贾风记
+        ring[ring_cp++] = -1;
+        if(ring_cp == MAX_CLIP) ring_cp = 0;
+        count--;
+        write_iterator++;
+        //up(&wrt); //1贾风记
+
+
+        down(&mutex);
+        writecount--;
+        if (rwc>0) {
+                for(k=0;k<rwc;k++)
+                        up(&read);
+        }
+        else if(wwc>0)
+                up(&wrt);
+        up(&mutex); //3贾风记
+
+        /*up(&wrt);
+        down(&wmutex);
+        writecount--;
+        if (writecount == 0)
+                up(&read);
+        up(&wmutex);*/ //2贾风记
+
+
+        return 0;
+}
+
+static int foo_simple_count(struct seq_file *s, void *unused)
+{
+        seq_printf(s, "%d \n", count);
+        return 0;
+}
+
+
+static int foo_simple_dump(struct seq_file *s, void *unused)
+{
+        int a = 0;
+        for(a = 0; a < 4; a++){
+                seq_printf(s, "%d", ring[a]);
+        }
+        seq_printf(s, "\n");
+        return 0;
+}
+
+static int foo_proc_open_dump(struct inode *inode, struct file *file){
+
+        return single_open(file,foo_simple_dump,NULL);
+}
+
+static int foo_proc_open_count(struct inode *inode, struct file *file){
+        return single_open(file,foo_simple_count,NULL);
+}
+
+static const struct file_operations foo_proc_ops_read = {
+        .owner          = THIS_MODULE,
+        .open           = foo_proc_open_read,
+        .read           = foo_proc_modread,
+        .llseek         = seq_lseek,
+        .release        = seq_release,
+};
+
+static const struct file_operations foo_proc_ops_write = {
+        .owner          = THIS_MODULE,
+        .open           = foo_proc_open_write,
+        .read           = foo_proc_writer_read,
+        .write          = foo_proc_modwrite,
+        .llseek         = seq_lseek,
+        .release        = seq_release,
+};
+
+
+static const struct file_operations foo_proc_ops_count = {
+        .owner          = THIS_MODULE,
+        .open           = foo_proc_open_count,
+        .read           = seq_read,
+        .llseek         = seq_lseek,
+        .release        = seq_release,
+};
+
+static const struct file_operations foo_proc_ops_dump = {
+        .owner          = THIS_MODULE,
+        .open           = foo_proc_open_dump,
+        .read           = seq_read,
+        .llseek         = seq_lseek,
+        .release        = seq_release,
+};
+
+
+/*--------------------------------------------------------*/
+/* 3) proc interface part  (/proc/foo-dir/foo)            */
+/*--------------------------------------------------------*/
+
+static struct proc_dir_entry *foo_proc_dir = NULL;
+static struct proc_dir_entry *foo_proc_read = NULL;
+static struct proc_dir_entry *foo_proc_write = NULL;
+static struct proc_dir_entry *foo_proc_count = NULL;
+static struct proc_dir_entry *foo_proc_dump = NULL;
+
+int foo_proc_init(void)
+{
+        foo_proc_dir = proc_mkdir("kboard", NULL);
+        if (foo_proc_dir == NULL)
+        {
+                printk("Unable to create /proc/kboard\n");
+                return -1;
+        }
+
+        foo_proc_read = proc_create("read", 0, foo_proc_dir, &foo_proc_ops_read); /* S_IRUGO */
+        foo_proc_write = proc_create("write", 0, foo_proc_dir, &foo_proc_ops_write); /* S_IRUGO */
+        foo_proc_count = proc_create("count", 0, foo_proc_dir, &foo_proc_ops_count);
+        foo_proc_dump = proc_create("dump", 0, foo_proc_dir, &foo_proc_ops_dump);
+
+
+        if (foo_proc_read == NULL)
+        {
+                printk("Unable to create /proc/kboard/read\n");
+                remove_proc_entry("kboard", NULL);
+                return -1;
+        }
+
+        if (foo_proc_write == NULL)
+        {
+                printk("Unable to create /proc/kboard/write\n");
+                remove_proc_entry("kboard", NULL);
+                return -1;
+        }
+
+
+        printk(KERN_INFO "Created /proc/kboard/read\n");
+        printk(KERN_INFO "Created /proc/kboard/write\n");
+        return 0;
+}
+
+void foo_proc_exit(void)
+{
+        /* remove directory and file from procfs */
+        remove_proc_subtree("kboard", NULL);
+
+        /* remove proc_dir_entry instance */
+        proc_remove(foo_proc_read);
+        proc_remove(foo_proc_write);
+        proc_remove(foo_proc_count);
+        proc_remove(foo_proc_dump);
+        proc_remove(foo_proc_dir);
+
+        printk(KERN_INFO "Removed /proc/kboard/read\n");
+        printk(KERN_INFO "Removed /proc/kboard/write\n");
+
+}
+
+/*--------------------------------------------------------*/
+/* 2) Module part                                         */
+/*--------------------------------------------------------*/
+
+static int __init foo_init(void)
+{
+        //sema_init(&wrt, 1); //1, 2 贾风记
+        //sema_init(&read, 1); //1, 2 贾风记
+        sema_init(&wrt, 0); //3 贾风记
+        sema_init(&read, 0); //3 贾风记
+        sema_init(&wmutex, 1);
+        sema_init(&rmutex, 1);
+        sema_init(&mutex, 1); // 3贾风记
+        return foo_proc_init();
+}
+
+static void __exit foo_exit(void)
+{
+        foo_proc_exit();
+
+        printk("write: %d read: %d\n", write_iterator, read_iterator);
+        return;
+}
+
+module_init(foo_init);
+module_exit(foo_exit);

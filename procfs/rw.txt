@@ -1,0 +1,73 @@
+#include <stdio.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <pthread.h>
+#include <stdlib.h>
+
+#define THREAD_MAX 28
+
+void * start_thread1(void *a);
+void * start_thread2(void *a);
+void * start_thread3(void *a);
+int main(){
+
+        pthread_t th[THREAD_MAX];
+
+        int fd = open("/proc/kboard/write",O_WRONLY);
+        int fd1 = open("/proc/kboard/read", O_RDONLY);
+        int fd2 = open("/proc/kboard/write", O_RDONLY);
+
+        int c1=0, c2=0, c3=0;
+
+        for(int i = 1; i < 56; i++){
+                if((i - 1) % 4 == 0) {
+                        pthread_create(&th[i], NULL, start_thread1, (void *) &fd);
+                //      printf("check 1. writer enqueue %d\n", c1++);
+                }
+                else if(i % 2 == 0) {
+                        pthread_create(&th[i], NULL, start_thread2, (void *) &fd1);
+                //      printf("check 2. reader %d\n", c2++);
+                }
+                else if((i - 3) % 4 == 0) {
+                        pthread_create(&th[i], NULL, start_thread3, (void *) &fd2);
+                //      printf("check 3. writer dequeue %d\n", c3++);
+                }
+
+        }
+
+        for(int i = 1; i < 29; i++){
+                pthread_join(th[i], NULL);
+        }
+
+        return 0;
+}
+
+void * start_thread1(void *a){
+        int id;
+        int c= 999;
+        //printf("%d ", id);
+
+        int fd = open("/proc/kboard/write",O_WRONLY);
+        for(;;){
+                c=write(fd, &c, sizeof(int));
+        }
+
+}
+void * start_thread2(void *a){
+        int id;
+        int c;
+        int fd1 = open("/proc/kboard/read", O_RDONLY);
+        //printf("%d ", id);
+        for(;;){
+                c=read(fd1, &c, sizeof(int));
+        }
+}
+void * start_thread3(void *a){
+        int id;
+        int c;
+        int fd2 = open("/proc/kboard/write", O_RDONLY);
+        //printf("%d ", id);
+        for(;;){
+                c=read(fd2, &c, sizeof(int));
+        }
+}

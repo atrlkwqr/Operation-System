@@ -1,0 +1,59 @@
+#include <linux/syscalls.h>
+#include <linux/printk.h>
+#include <linux/uaccess.h>
+
+#define MAX_CLIP 5
+
+int ring[MAX_CLIP] = {0};
+
+long ring_lp = 0;
+long ring_cp = 0;
+long ring_len = 0;
+
+void ring_push(int data){
+        ring[ring_lp++] = data;
+        ring_len++;
+        if(ring_lp == MAX_CLIP) ring_lp = 0;
+}
+
+void ring_pop(void){
+        if(ring_cp == MAX_CLIP) ring_cp = 0;
+        ring_len--;
+        ring_cp++;
+}
+
+long do_sys_kb_enqueue(int item){
+	    printk(KERN_DEBUG "os201514768: do_sys_kb_enqueue() CALLED!! item=%d\n, item");
+        if(ring_len == 5) {
+	    printk(KERN_DEBUG "os201514768: do_sys_kb_enqueue() full queue!!\n");
+	    return -1;
+        }
+        if(item < 0){
+                printk(KERN_DEBUG "os201514768: do_sys_kb_enqueue() input negative!!\n");
+                return -2;
+        }
+        ring_push(item);
+
+        return 0;
+}
+
+long do_sys_kb_dequeue(int *user_buf){
+	    printk(KERN_DEBUG "os201514768: do_sys_kb_dequeue() CALLED!!\n");
+        if(ring_len == 0) {
+	    printk(KERN_DEBUG "os201514768: do_sys_kb_dequeue() hollow queue!!\n");
+	    return -1;
+        }
+        ring_pop();
+        copy_to_user(user_buf, &ring[ring_cp - 1], sizeof(int));
+
+        return 0;
+}
+
+SYSCALL_DEFINE1(kb_enqueue, int, item){
+        return do_sys_kb_enqueue(item);
+}
+
+SYSCALL_DEFINE1(kb_dequeue, int __user *, user_buf){
+        return do_sys_kb_dequeue(user_buf);
+}
+

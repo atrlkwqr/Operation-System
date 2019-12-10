@@ -1,0 +1,18 @@
+#include <unistd.h>
+#include <sys/syscall.h>
+#include "kboard.h"
+
+int main()
+{
+        int clip;
+
+        scanf("%d", &clip);
+
+        int a = kboard_copy(clip);
+
+        if(a == 0) return printf("Copy Success : %d\n", clip);
+        else if(a == -1) return printf("ERROR : full queue\n");
+        else if(a == -2) return printf("ERROR : input negative\n");
+        return 0;
+}
+           

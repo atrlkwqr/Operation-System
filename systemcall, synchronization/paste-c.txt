@@ -1,0 +1,16 @@
+#include <unistd.h>
+#include <sys/syscall.h>
+#include "kboard.h"
+
+int main()
+{
+        int clip;
+
+        int a = kboard_paste(&clip);
+
+        if(a == 0) return printf("Paste Success : %d\n", clip);
+        else if(a == -1) return printf("ERROR : hollow queue\n");
+
+        return 0;
+
+}
